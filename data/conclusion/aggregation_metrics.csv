@@ -1,12 +1,12 @@
-Experiment,Lag,DropRate,Type
-3p0klag-all-data-trace_P3,0.0,0.1363,TumblingWindow (?)
-slide21k-0klag_Sliding_SZ2000_SL1000_P3,0.0,0.0149,SlidingWindow (2k/1k)
-3p0.5klag-all-data-trace_P3,0.5,0.039,TumblingWindow (?)
-slide21k-0.5klag_Sliding_SZ2000_SL1000_P3,0.5,0.0058,SlidingWindow (2k/1k)
-3p1klag-all-data-trace_P3,1.0,0.0183,TumblingWindow (?)
-slide21k-1klag_Sliding_SZ2000_SL1000_P3,1.0,0.0029,SlidingWindow (2k/1k)
-slide21k-1.5klag_Sliding_SZ2000_SL1000_P3,1.5,0.0015,SlidingWindow (2k/1k)
-3p2klag-all-data-trace_P3,2.0,0.0039000000000000003,TumblingWindow (?)
-slide21k-2klag_Sliding_SZ2000_SL1000_P3,2.0,0.0008,SlidingWindow (2k/1k)
-3p2.5klag-all-data-trace_P3,2.5,0.0017000000000000001,TumblingWindow (?)
-3p3klag-all-data-trace_P3,3.0,0.001,TumblingWindow (?)
+Experiment,Lag,DropRate,AvgLatency,Type
+3p0klag-all-data-trace_P3,0.0,0.13269999999999998,1.5668,Tumbling Window
+slide21k-0klag_Sliding_SZ2000_SL1000_P3,0.0,0.015,1.6569,Sliding Window
+3p0.5klag-all-data-trace_P3,0.5,0.0417,1.9506,Tumbling Window
+slide21k-0.5klag_Sliding_SZ2000_SL1000_P3,0.5,0.006,2.1892,Sliding Window
+3p1klag-all-data-trace_P3,1.0,0.0191,2.5808,Tumbling Window
+slide21k-1klag_Sliding_SZ2000_SL1000_P3,1.0,0.0029,2.6241,Sliding Window
+slide21k-1.5klag_Sliding_SZ2000_SL1000_P3,1.5,0.0015,2.8038,Sliding Window
+3p2klag-all-data-trace_P3,2.0,0.0043,3.5127,Tumbling Window
+slide21k-2klag_Sliding_SZ2000_SL1000_P3,2.0,0.0007000000000000001,3.5758,Sliding Window
+3p2.5klag-all-data-trace_P3,2.5,0.0018,3.9825,Tumbling Window
+3p3klag-all-data-trace_P3,3.0,0.0011,4.4694,Tumbling Window

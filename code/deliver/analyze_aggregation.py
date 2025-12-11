@@ -51,19 +51,28 @@ def analyze_aggregation():
         with open(summary_file, 'r', encoding='utf-8') as f:
             content = f.read()
             # 查找 "总丢弃率: 4.00%"
-            match = re.search(r"总丢弃率:\s*([\d\.]+)%", content)
-            if match:
-                drop_rate = float(match.group(1)) / 100.0
+            # 查找 "总丢弃率: 4.00%"
+            match_drop = re.search(r"总丢弃率:\s*([\d\.]+)%", content)
+            if match_drop:
+                drop_rate = float(match_drop.group(1)) / 100.0
             else:
                 print(f"⚠️ 从 {summary_file} 无法解析丢弃率")
-                continue
-                
+                drop_rate = 0.0
+            
+            # 查找 "平均处理延迟: 0.1234 s"
+            match_latency = re.search(r"平均处理延迟:\s*([\d\.]+)\s*s", content)
+            if match_latency:
+                avg_latency = float(match_latency.group(1))
+            else:
+                print(f"⚠️ 从 {summary_file} 无法解析延迟")
+                avg_latency = 0.0
+
         # 区分实验类型
         experiment_type = "Unknown"
         if "slide21k" in dir_name:
-            experiment_type = "SlidingWindow (2k/1k)"
-        elif dir_name.startswith("3p"):
-            experiment_type = "TumblingWindow (?)"
+            experiment_type = "Sliding Window"
+        elif "3p" in dir_name or "Tumbling" in dir_name:
+            experiment_type = "Tumbling Window"
         else:
             experiment_type = "Other"
             
@@ -71,6 +80,7 @@ def analyze_aggregation():
             "Experiment": dir_name,
             "Lag": lag,
             "DropRate": drop_rate,
+            "AvgLatency": avg_latency,
             "Type": experiment_type
         })
     
@@ -82,15 +92,13 @@ def analyze_aggregation():
     df = df.sort_values("Lag")
     
     print("📊 聚合数据预览:")
-    print(df)
+    print(df[['Experiment', 'Lag', 'DropRate', 'AvgLatency', 'Type']])
     
     # 保存聚合数据
     df.to_csv(os.path.join(OUTPUT_DIR, "aggregation_metrics.csv"), index=False)
     
-    # 绘图
+    # --- 图表 1: Drop Rate vs Lag ---
     plt.figure(figsize=(10, 6))
-    
-    # 按类型分组绘图
     types = df['Type'].unique()
     markers = ['o', 's', '^', 'D']
     
@@ -100,7 +108,6 @@ def analyze_aggregation():
                  marker=markers[i % len(markers)], linestyle='-', linewidth=2, markersize=8, 
                  label=exp_type)
         
-        # 标注点
         for _, row in subset.iterrows():
             plt.text(row['Lag'], row['DropRate'] * 100 + 0.5, f"{row['DropRate']*100:.1f}%", ha='center')
 
@@ -112,7 +119,45 @@ def analyze_aggregation():
     
     save_path = os.path.join(OUTPUT_DIR, "drop_rate_vs_lag.png")
     plt.savefig(save_path)
-    print(f"🖼️ 聚合图表已保存: {save_path}")
+    print(f"🖼️ [1/2] 丢弃率图表已保存: {save_path}")
+    
+    # --- 图表 2: Trade-off Analysis (Dual Axis) ---
+    # 只绘制 Tumbling Window (作为主要分析对象) 或者都画
+    # 为了清晰，我们针对每种类型画一张，或者只画 Tumbling
+    target_type = "Tumbling Window"
+    subset = df[df['Type'] == target_type]
+    
+    if not subset.empty:
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        # 左轴: 丢弃率 (Drop Rate)
+        color = 'tab:red'
+        ax1.set_xlabel('Watermark Lag (s)', fontsize=12)
+        ax1.set_ylabel('Drop Rate (%)', color=color, fontsize=12)
+        l1, = ax1.plot(subset['Lag'], subset['DropRate'] * 100, color=color, marker='o', label='Drop Rate')
+        ax1.tick_params(axis='y', labelcolor=color)
+        ax1.grid(True, linestyle='--', alpha=0.5)
+
+        # 右轴: 延迟 (Latency)
+        ax2 = ax1.twinx()  
+        color = 'tab:blue'
+        ax2.set_ylabel('Average Latency (s)', color=color, fontsize=12)
+        l2, = ax2.plot(subset['Lag'], subset['AvgLatency'], color=color, marker='s', linestyle='--', label='Latency')
+        ax2.tick_params(axis='y', labelcolor=color)
+        ax2.grid(False) # 右轴不画网格，避免混乱
+
+        plt.title(f"Trade-off Analysis: Accuracy vs Latency ({target_type})", fontsize=14)
+        
+        # 合并图例
+        lines = [l1, l2]
+        labels = [l.get_label() for l in lines]
+        ax1.legend(lines, labels, loc='upper center')
+        
+        save_path_2 = os.path.join(OUTPUT_DIR, "tradeoff_analysis.png")
+        plt.savefig(save_path_2)
+        print(f"🖼️ [2/2] 权衡分析图表已保存: {save_path_2}")
+    else:
+        print(f"⚠️ 没有找到 {target_type} 的数据，跳过 Trade-off 图表")
 
 if __name__ == "__main__":
     analyze_aggregation()
