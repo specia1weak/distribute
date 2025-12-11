@@ -37,42 +37,159 @@
 -----
 
 ### 3.2 实验负载
+* **数据集 (Dataset)**：
+    本次实验，采用自定义 Python 脚本（`experiment_generator.py`）构建高保真模拟数据流，通过数学模型还原真实物理网络的不可靠性。数据生成逻辑包含以下核心特征：
+    1.  **基于物理规律的流量模型**：
+        * **泊松到达（Poisson Process）**：代码使用 `random.expovariate` 生成事件间隔，模拟真实场景下用户请求的随机到达特性。
+        * **周期性潮汐突发**：在基础速率（100 ops）之上叠加 **正弦波（Sinusoidal Wave）** 扰动。设定突发周期为 **20秒**，波峰流量放大至基础值的 **2.0倍**，用于测试 Flink 在流量洪峰下的背压处理与窗口计算能力。
 
-  * **数据集**：
-      * 使用自定义 Python 脚本生成的**高并发模拟日志流**。
-      * 数据特征：包含严重的随机乱序（Random Out-of-Orderness）。数据生成时人为注入了 0\~4000ms 的随机事件时间延迟。
-      * 数据总量：每组实验处理约 6000-7000 条关键事件数据。
-  * **工作负载 (Workload)**：
-      * 提交一个 PyFlink 流处理作业，包含 `Source` -\> `WatermarkStrategy` -\> `KeyBy` -\> `Window(Tumbling 10s)` -\> `Sink` 的完整链路。
-      * 利用 `side_output_late_events` 接口分离迟到数据。
-      * 实验通过调整 `BoundedOutOfOrderness` 的 `Duration` 参数（Lag），分别测试 **0ms, 1000ms, 2000ms, 3000ms, 5000ms** 五组场景。
+    2.  **长尾分布的乱序机制**：
+        * **网络延迟建模**：采用 **对数正态分布（Log-Normal Distribution, $\mu=-1.0, \sigma=0.8$）** 替代均匀分布来模拟网络延迟。该模型通过数学手段复现了网络传输中的“长尾效应”——即绝大多数数据延迟极低（50ms左右），但偶发极高延迟（>2000ms）的数据包。
+        * **物理乱序注入**：生成器计算 `send_time = event_time + delay`，并最终按照 `send_time` 对数据进行全局排序，从而在数据流中制造了严酷且真实的**事件时间乱序**。
+
+    3.  **数据规模**：
+        单次实验样本量为 **20,000 条**，包含约 2% 的随机丢包噪声，确保数据集覆盖平稳期、突发期以及各种程度的乱序场景。
+        
+    ![实验数据](static/data_distribute/distribute.png)
+    
+  * **工作负载 (Workloads)**：
+      实验设计了两组 PyFlink 作业以全面评估不同窗口类型下的水位线行为：
+      1.  **滑动窗口作业 (`socket_slide_winv2.py`)**：
+          *   **配置**：窗口大小 **2000ms**，滑动步长 **1000ms**。
+          *   **目的**：测试在窗口重叠场景下，水位线延迟对连续结果输出平滑性的影响。
+      2.  **滚动窗口作业 (`socket_tunmling.py`)**：
+          *   **配置**：窗口大小 **2000ms** (非重叠)。
+          *   **目的**：作为基准对照组，量化固定时间片内的绝对丢包率与延迟。
+      
+      **核心处理逻辑**：
+      *   **数据接入**：通过 `socketTextStream` 接收 Python 生成器发出的模拟流量 (`Parallelism=3`).
+      *   **水位线策略**：使用 `BoundedOutOfOrdernessTimestampExtractor`，Lag 参数动态配置 (0ms - 5000ms)。
+      *   **监控埋点**：自定义 `ProcessWindowFunction` 计算 Count/Loss/SystemLag，并利用 **Side Output** 机制捕获所有被丢弃的 Late Event。
 
 ### 3.3 实验步骤
 
-#### 步骤 1：分布式集群部署与扩容
+#### 实验架构图
 
-启动 Flink 集群，并通过修改配置或手动启动命令，启动 3 个 TaskManager 实例，确保并行度满足实验要求。
+为了复现真实的流处理压测场景，我们设计了 "离线生成 - 在线重放" 的实验架构：
 
-![home](static/home.png)
-> *截图说明：Flink Web UI (Dashboard) 的 Task Managers 页面。图中应清晰显示 **Active TaskManagers: 3**，证明 3 个工作节点已就绪。*
+![process](static/process/process.png)
+#### 步骤 1：PyFlink 分布式环境准备
 
-#### 步骤 2：提交 Flink 实验作业
+在 3 台物理机（基于 WSL2）上构建 Standalone 模式的 Flink 集群。
+1.  **节点角色分配与配置**：
+      * **Master (Node-01)**: 运行 `JobManager`
+      * **Workers (Node-01, 02, 03)**: 各运行一个 `TaskManager`，组成并行度为 3 的计算资源池。
+2.  **运行在WSL的节点配置**
+    由于实验在3台windows的WSL2环境上运行，在环境配置比起服务器会有很多关键步骤需要额外说明。
+    WSL不能直接被其他节点访问，需要配置windows的端口转发规则才能让外界访问到内部的WSL。相关配置如图，关键点包括：
+    - 统一jobmanager.rpc.address 为flink-master。在master节点修改hosts文件将flink-master映射到localhost，其他节点将flink-master映射到实际ip。
+    - 统一python.executable为固定路径 /opt/pyflink_env/bin/python，如果三个节点python环境在不同路径，需要使用ln -s命令创建软连接到同一路径，否则不能运行。
+    - 固定metrics.internal.query-service.port到一个端口，由于flink默认将其设置为随机端口，导致随机端口可能不在WSL的端口转发内而无法通信。
 
-使用命令行向集群提交 Flink 任务，指定 JobManager 地址。
+![config.png](static/env/config.png)
+3.  **集群启动**：
+    在 Master 节点执行启动脚本：
+    ```bash
+    ./bin/start-cluster.sh
+    ```
+4.  **环境验证**：
+    访问 Flink Web UI，确认 三个TaskManager 状态。
+![workers](static/workers.png)
+   > 截图说明：Flink Web UI (Dashboard) 的 Task Managers 页面。图中应清晰显示每个节点的ip，以及通信端口，slots数量*
 
-```bash
-./bin/flink run ./flink-watermark-job/target/flink-watermark-job-1.0-SNAPSHOT.jar
-```
+#### 步骤 2：数据源与集群实验关键配置
 
-![run](static/run.png)
-> *截图说明：终端控制台截图。显示 `Job has been submitted with JobID: ...`，且命令行提示符包含当前用户账号（ `lxogri@LXOGRI`），佐证实验真实性。*
+本实验为了在 Python 环境下获得尽可能高的观测精度，对网络通信与 PyFlink 运行时进行了深度定制。
 
-#### 步骤 3：作业执行与监控
+1.  **Socket 数据源网络配置**：
+      * **乱序日志生成**：预先使用`log_generator.py`生成固定的数据，作为每次实验的数据来源。
+      * **服务端**：在额外独立的节点上运行`log_server.py` 绑定至 `0.0.0.0:9999`，负责为flink集群提供反复实验并相同的数据源。
+      * **时间同步**：各 Worker 节点通过 TCP 连接 Master 的 `9998` 端口，计算 RTT 并获取 `GLOBAL_TIME_OFFSET`，消除物理机系统时钟差异对延迟计算的影响。
 
-在 Flink Dashboard 中监控作业运行状态，观察 Watermark 的推进曲线以及各个算子的背压情况。
+2.  **PyFlink 关键配置（对实验结果影响显著）**：
+    由于 PyFlink 涉及 JVM 与 Python VM 之间的跨进程通信，默认配置偏向吞吐量而牺牲了延迟。为了准确观测水位线效果，我们在代码中强制覆盖了以下配置：
 
-![pipeline](static/pipeline.png)
-> *截图说明：Flink 作业的详情页面（Job Graph），显示 Source、Window、Sink 等算子均为 Running 状态。*
+      * **水位线生成频率 (`pipeline.auto-watermark-interval`)**：
+          * *默认值*：200ms
+          * *实验设定*：**10ms**
+          * *目的*：确保 Watermark 能紧跟数据流产生，避免因 Watermark 生成滞后导致窗口触发延迟，从而干扰对“真实延迟”的测量。
+      * **跨语言包大小 (`python.fn-execution.bundle.size/time`)**：
+          * *默认值*：1000ms / 1000条
+          * *实验设定*：**10ms / 1条**
+          * *目的*：PyFlink 默认会攒批处理以减少 JNI 调用开销。本实验强制减小 Bundle 大小，使 Python UDF（如窗口处理函数）能实时响应，避免数据在缓冲区滞留。
+
+#### 步骤 3：作业执行与变量控制
+
+通过 Flink CLI 提交 PyFlink 作业，分别进行滚动窗口与滑动窗口的对照实验。
+
+1.  **实验组 A：滚动窗口 (Tumbling Window)**
+    固定窗口大小 2000ms，控制变量为水位线延迟 (`--lag`)。
+
+    ```bash
+    # 示例：提交 Lag=1500ms 的实验任务
+    ./bin/flink run -py socket_tunmling.py \
+        --lag 1500 \
+        --window_size 2000 \
+        --parallelism 3
+    ```
+
+    *执行 0ms, 1500ms, 3000ms, 5000ms 四组对照实验。*
+
+2.  **实验组 B：滑动窗口 (Sliding Window)**
+    引入窗口重叠（Slide=1000ms），测试高负载下的丢包表现。
+
+    ```bash
+    ./bin/flink run -py socket_slide_winv2.py \
+        --lag 1500 \
+        --window_size 2000 \
+        --window_slide 1000
+    ```
+
+#### 步骤 4：运行过程与过程截图
+
+任务面板里面，可以查看每个Taskmanager的工作状态，处理与接受的数据量等信息。
+![working.png](static/working/working.png)
+
+可以查看每个Taskmanager的Stdout，如图每行的输出都记录了一个窗口触发的行为，
+也能看到触发这个窗口的水位线、窗口的事件量。这里展示172.25.89.156的日志信息。
+这个节点被分配了一个并行度，负责Task2的任务，所以每行以`2>`开头。
+
+![stdout.png](static/working/stdout.png)
+> 每一行以**Stu3020Laixin**学号姓名打印的形式来表明实验的真实性。
+
+运行完毕回到主界面，可以看到下方记录了任务的完成状态，消耗时间。
+![finish.png](static/working/finish.png)
+
+
+
+实验数据分散存储在三个节点的本地文件系统中，需进行聚合分析。
+1.  **日志收集**：
+    作业结束后，将各 Worker 节点 `/tmp/experiment_logs/` 目录下的 CSV 文件（`_metrics.csv` 和 `_trace.csv`）回传至分析机。
+2.  **数据清洗与合并**：
+    合并 3 个并行 Subtask 的数据，按照 `window_end` 对齐窗口统计信息。
+3.  **可视化生成**：
+    运行 `code/analyze` 下的相关分析代码生成评估图表：
+      * **延迟-丢包权衡曲线 (Trade-off Curve)**：分析不同 Lag 设置下，系统平均延迟与丢包率的关系。
+      * **流量密度图**：验证正弦波流量模型是否生效。
+      * **迟到数据分布图**：通过 Trace 日志，精确定位迟到数据的产生时刻与滞后时长。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### 3.4 实验结果与分析
 

@@ -1,0 +1,2 @@
+log_generator.py的作用是
+log_server.py的作用是，可以看到和pyflink的配合
