@@ -2,3 +2,6 @@
 .venv
 GUIDE.md
 REPORT.md
+**/deprecated/**
+data
+PYFLINK.md

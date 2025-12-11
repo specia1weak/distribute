@@ -52,6 +52,18 @@ def analyze_experiment(data_dir, experiment_prefix, output_base_dir, cutoff_seco
     df = pd.concat(dfs, ignore_index=True)
     
     # 3. 数据预处理
+    
+    # 统一时间列名
+    # Trace file: sys_ts, event_ts
+    # Window file: trigger_ts, window_end
+    # 我们主要分析 Trace file 算指标，但是 Trigger Delay 需要 Window file
+    # 这里我们只处理 Trace file 的逻辑，如果传入的是 Window file，可能需要另一套逻辑
+    # 但 analyze_single_experiment 之前是针对 Trace file 设计的 (metrics_1s based on time_sec)
+    
+    if 'trigger_ts' in df.columns and 'window_end' in df.columns:
+         analyze_window_experiment(df, experiment_prefix, output_base_dir, cutoff_seconds)
+         return
+
     # 转换时间戳 (假设是毫秒)
     df['sys_ts'] = df['sys_ts'].astype(float)
     df['event_ts'] = df['event_ts'].astype(float)
@@ -163,6 +175,44 @@ def analyze_experiment(data_dir, experiment_prefix, output_base_dir, cutoff_seco
     print(f"Summary saved: {summary_path}")
 
 
+def analyze_window_experiment(df, experiment_prefix, output_base_dir, cutoff_seconds=10):
+    """
+    专门分析 Window Metrics 文件 (包含 trigger_ts, window_end)
+    计算 Window Trigger Latency
+    输出 summary_window.txt
+    """
+    print(f"Analyzing Window Metrics: {experiment_prefix}")
+    
+    # 转换
+    df['trigger_ts'] = df['trigger_ts'].astype(float)
+    df['window_end'] = df['window_end'].astype(float)
+    
+    # Cutoff
+    max_ts = df['trigger_ts'].max()
+    cutoff_ts = max_ts - (cutoff_seconds * 1000)
+    
+    df = df[df['trigger_ts'] <= cutoff_ts].copy()
+    
+    if df.empty: return
+
+    # Calculate Trigger Delay = trigger_ts - window_end
+    # Note: trigger_ts is system time, window_end is event time.
+    # Unit: ms -> s
+    df['trigger_delay_s'] = (df['trigger_ts'] - df['window_end']) / 1000.0
+    
+    avg_trigger_delay = df['trigger_delay_s'].mean()
+    
+    # Save partial summary
+    output_dir = os.path.join(output_base_dir, experiment_prefix)
+    os.makedirs(output_dir, exist_ok=True)
+    summary_path = os.path.join(output_dir, "summary_window.txt")
+    
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        f.write(f"平均窗口触发延迟: {avg_trigger_delay:.4f} s\n")
+        
+    print(f"Window Summary saved: {summary_path}")
+
+
 def plot_analysis(metrics, title, save_path):
     fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
     
@@ -198,6 +248,4 @@ def plot_analysis(metrics, title, save_path):
     plt.close()
 
 if __name__ == "__main__":
-    # 为了测试方便，这里可以允许直接运行，也可以被 run_analysis 调用
-    # 这里的 main 只做简单自测或不仅入
     pass
