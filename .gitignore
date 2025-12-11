@@ -3,5 +3,5 @@
 GUIDE.md
 REPORT.md
 **/deprecated/**
-data
+data/experiment_logs
 PYFLINK.md

@@ -1,0 +1,14 @@
+Experiment,Lag,DropRate,AvgLatency,TriggerDelay,Type
+3p0klag-all-data-trace_P3,0.0,0.13269999999999998,1.5668,0.4865,Tumbling Window
+slide21k-0klag_Sliding_SZ2000_SL1000_P3,0.0,0.015,1.6569,0.0,Sliding Window
+3p0.5klag-all-data-trace_P3,0.5,0.0417,1.9506,0.9586,Tumbling Window
+slide21k-0.5klag_Sliding_SZ2000_SL1000_P3,0.5,0.006,2.1892,0.0,Sliding Window
+3p1klag-all-data-trace_P3,1.0,0.0191,2.5808,1.5804,Tumbling Window
+slide21k-1klag_Sliding_SZ2000_SL1000_P3,1.0,0.0029,2.6241,0.0,Sliding Window
+3p1.5klag-all-data-trace_P3,1.5,0.0076,3.1183,2.1041,Tumbling Window
+slide21k-1.5klag_Sliding_SZ2000_SL1000_P3,1.5,0.0015,2.8038,0.0,Sliding Window
+3p2klag-all-data-trace_P3,2.0,0.0043,3.5127,2.5162,Tumbling Window
+slide21k-2klag_Sliding_SZ2000_SL1000_P3,2.0,0.0007000000000000001,3.5758,0.0,Sliding Window
+3p2.5klag-all-data-trace_P3,2.5,0.0018,3.9825,2.9788,Tumbling Window
+3p3klag-all-data-trace_P3,3.0,0.0011,4.4694,3.4682,Tumbling Window
+3p5klag-all-data-trace_P3,5.0,0.0,6.3859,5.3876,Tumbling Window
