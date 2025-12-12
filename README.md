@@ -9,7 +9,9 @@
 1.  **基础研究**：深入理解Flink的水位线（Watermark）机制，探究水位线延迟时间对窗口触发延迟和
 结果计算准确度的影响。进一步研究在乱序数据场景下，如何通过合理设置水位线延迟时间，在延
 迟与计算准确性之间取得平衡。
-2.  **迟到数据量化分析**：利用 Flink 侧输出流（Side Output）机制，捕获并统计被窗口丢弃的迟到数据，量化不同水位线设置下的“数据丢失成本”，为生产环境的参数调优提供数据支撑。
+<img width="874" height="429" alt="image" src="https://github.com/user-attachments/assets/1c68fd04-2179-42b0-bc04-92f0319092c9" />
+
+3.  **迟到数据量化分析**：利用 Flink 侧输出流（Side Output）机制，捕获并统计被窗口丢弃的迟到数据，量化不同水位线设置下的“数据丢失成本”，为生产环境的参数调优提供数据支撑。
 
 ## 3\. 实验
 -----
@@ -76,11 +78,15 @@ s
 #### 步骤 1：PyFlink 分布式环境准备
 
 在 3 台物理机（基于 WSL2）上构建 Standalone 模式的 Flink 集群。
+<img width="1394" height="401" alt="image" src="https://github.com/user-attachments/assets/4af1bdda-955e-40b7-b4c9-d92e506996f4" />
+
 1.  **节点角色分配与配置**：
       * **Master (Node-01)**: 运行 `JobManager`
       * **Workers (Node-01, 02, 03)**: 各运行一个 `TaskManager`，组成并行度为 3 的计算资源池。
 2.  **运行在WSL的节点配置**
     由于实验在3台windows的WSL2环境上运行，在环境配置比起服务器会有很多关键步骤需要额外说明。
+    <img width="1405" height="366" alt="image" src="https://github.com/user-attachments/assets/54a13f74-80a7-4dda-98fe-b5ba8248dfc1" />
+
     WSL不能直接被其他节点访问，需要配置windows的端口转发规则才能让外界访问到内部的WSL。相关配置如图，关键点包括：
     - 统一jobmanager.rpc.address 为flink-master。在master节点修改hosts文件将flink-master映射到localhost，其他节点将flink-master映射到实际ip。
     - 统一python.executable为固定路径 /opt/pyflink_env/bin/python，如果三个节点python环境在不同路径，需要使用ln -s命令创建软连接到同一路径，否则不能运行。
@@ -105,6 +111,8 @@ s
       * **乱序日志生成**：预先使用`log_generator.py`生成固定的数据，作为每次实验的数据来源。
       * **服务端**：在额外独立的节点上运行`log_server.py` 绑定至 `0.0.0.0:9999`，负责为flink集群提供反复实验并相同的数据源。
       * **时间同步**：各 Worker 节点通过 TCP 连接 Master 的 `9998` 端口，计算 RTT 并获取 `GLOBAL_TIME_OFFSET`，消除物理机系统时钟差异对延迟计算的影响。
+      * <img width="988" height="539" alt="image" src="https://github.com/user-attachments/assets/fc21fcc4-fcb7-4710-a742-387d0b1b186e" />
+
 
 2.  **PyFlink 关键配置（对实验结果影响显著）**：
     由于 PyFlink 涉及 JVM 与 Python VM 之间的跨进程通信，默认配置偏向吞吐量而牺牲了延迟。为了准确观测水位线效果，我们在代码中强制覆盖了以下配置：
@@ -117,6 +125,8 @@ s
           * *默认值*：1000ms / 1000条
           * *实验设定*：**10ms / 1条**
           * *目的*：PyFlink 默认会攒批处理以减少 JNI 调用开销。本实验强制减小 Bundle 大小，使 Python UDF（如窗口处理函数）能实时响应，避免数据在缓冲区滞留。
+          * <img width="1157" height="631" alt="image" src="https://github.com/user-attachments/assets/6ef91bfe-7a41-4cd9-9a5a-12e953a9f2dd" />
+
 
 #### 步骤 3：作业执行与变量控制
 
